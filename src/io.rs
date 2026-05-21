@@ -1,5 +1,3 @@
-const PERIPHERAL_BASE: u32 = 0x4000_0000;
-
 fn mmio_write(addr: u32, value: u32) {
     unsafe {
         core::ptr::write_volatile(addr as *mut u32, value);
