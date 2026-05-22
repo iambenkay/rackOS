@@ -12,6 +12,7 @@ bench = false
 [features]
 default = ["rpi5"]
 rpi5 = []
+rpi4 = []
 
 [profile.dev]
 panic = "abort"

@@ -1,4 +1,7 @@
-use core::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
+use core::{
+    ptr::{addr_of, addr_of_mut, read_volatile, write_volatile},
+    u8,
+};
 
 #[repr(C, align(16))]
 struct Mailbox([u32; 36]);
@@ -11,7 +14,22 @@ impl Mailbox {
 
 static mut MBOX: Mailbox = Mailbox::new();
 
+#[cfg(feature = "rpi5")]
 const VIDEOCORE_MBOX: usize = 0x10_7C01_3880;
+
+#[cfg(feature = "rpi4")]
+const VIDEOCORE_MBOX: usize = 0xFE00_B880;
+
+#[cfg(feature = "rpi5")]
+const PHYSICAL_WIDTH: u32 = 3440;
+#[cfg(feature = "rpi5")]
+const PHYSICAL_HEIGHT: u32 = 1440;
+
+#[cfg(feature = "rpi4")]
+const PHYSICAL_WIDTH: u32 = 1500;
+#[cfg(feature = "rpi4")]
+const PHYSICAL_HEIGHT: u32 = 900;
+
 const MBOX_READ: usize = VIDEOCORE_MBOX + 0x00;
 const MBOX_STATUS: usize = VIDEOCORE_MBOX + 0x18;
 const MBOX_WRITE: usize = VIDEOCORE_MBOX + 0x20;
@@ -23,11 +41,47 @@ const MBOX_REQUEST: u32 = 0;
 const MBOX_CH_PROP: u32 = 8;
 const MBOX_TAG_LAST: u32 = 0;
 
-static mut FB: usize = 0;
+static mut FRAME_BUFFER: usize = 0;
+static mut SIZE: usize = 0;
 static mut WIDTH: u32 = 0;
 static mut HEIGHT: u32 = 0;
 static mut PITCH: u32 = 0;
 static mut ISRGB: u32 = 0;
+
+pub struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+impl Color {
+    pub fn from_rgb(r: u8, g: u8, b: u8) -> Color {
+        Color::from_rgba(r, g, b, u8::MAX)
+    }
+
+    pub fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
+        Color { r, g, b, a }
+    }
+
+    pub fn red() -> Color {
+        Color::from_rgb(255, 0, 0)
+    }
+
+    pub fn green() -> Color {
+        Color::from_rgb(0, 255, 0)
+    }
+
+    pub fn blue() -> Color {
+        Color::from_rgb(0, 0, 255)
+    }
+}
+
+impl Into<u32> for &Color {
+    fn into(self) -> u32 {
+        (self.r as u32) | (self.g as u32) << 8 | (self.b as u32) << 16 | (self.a as u32) << 24
+    }
+}
 
 fn mbox_set(i: usize, v: u32) {
     unsafe {
@@ -70,7 +124,6 @@ fn mbox_call(ch: u32) -> bool {
     }
 }
 
-/// Request a 1920x1080 32bpp framebuffer from the VideoCore firmware.
 pub fn init() -> bool {
     unsafe {
         mbox_set(0, 35 * 4); // total buffer size in bytes
@@ -79,14 +132,14 @@ pub fn init() -> bool {
         mbox_set(2, 0x0004_8003); // tag: set physical width/height
         mbox_set(3, 8);
         mbox_set(4, 8);
-        mbox_set(5, 1920);
-        mbox_set(6, 1080);
+        mbox_set(5, PHYSICAL_WIDTH);
+        mbox_set(6, PHYSICAL_HEIGHT);
 
         mbox_set(7, 0x0004_8004); // tag: set virtual width/height
         mbox_set(8, 8);
         mbox_set(9, 8);
-        mbox_set(10, 3440);
-        mbox_set(11, 1440);
+        mbox_set(10, PHYSICAL_WIDTH);
+        mbox_set(11, PHYSICAL_HEIGHT);
 
         mbox_set(12, 0x0004_8009); // tag: set virtual offset
         mbox_set(13, 8);
@@ -120,7 +173,8 @@ pub fn init() -> bool {
         if mbox_call(MBOX_CH_PROP) && mbox_get(20) == 32 && mbox_get(28) != 0 {
             // Convert the GPU bus address to an ARM physical address.
             let fb = mbox_get(28) & 0x3FFF_FFFF;
-            FB = fb as usize;
+            FRAME_BUFFER = fb as usize;
+            SIZE = mbox_get(29) as usize;
             WIDTH = mbox_get(5);
             HEIGHT = mbox_get(6);
             PITCH = mbox_get(33);
@@ -132,19 +186,32 @@ pub fn init() -> bool {
     }
 }
 
+pub fn clear(color: &Color) {
+    let (base, size) = unsafe { (FRAME_BUFFER, SIZE) };
+    if base == 0 || size == 0 {
+        return;
+    }
+    let words = size / 4;
+    for i in 0..words {
+        unsafe {
+            write_volatile((base + i * 4) as *mut u32, color.into());
+        }
+    }
+}
+
 /// Write a 32-bit ARGB color to a single pixel.
-pub fn draw_pixel(x: u32, y: u32, color: u32) {
+pub fn draw_pixel(x: u32, y: u32, color: &Color) {
     unsafe {
-        if FB == 0 || x >= WIDTH || y >= HEIGHT {
+        if FRAME_BUFFER == 0 || x >= WIDTH || y >= HEIGHT {
             return;
         }
         let offset = (y * PITCH + x * 4) as usize;
-        write_volatile((FB + offset) as *mut u32, color);
+        write_volatile((FRAME_BUFFER + offset) as *mut u32, color.into());
     }
 }
 
 /// Fill a solid rectangle with the given color.
-pub fn draw_rect(x1: u32, y1: u32, x2: u32, y2: u32, color: u32) {
+pub fn draw_rect(x1: u32, y1: u32, x2: u32, y2: u32, color: &Color) {
     for y in y1..=y2 {
         for x in x1..=x2 {
             draw_pixel(x, y, color);
@@ -158,15 +225,7 @@ fn edge(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> i32 {
 }
 
 /// Fill a triangle given by three vertices, using half-space rasterization.
-pub fn draw_triangle(
-    x0: i32,
-    y0: i32,
-    x1: i32,
-    y1: i32,
-    x2: i32,
-    y2: i32,
-    color: u32,
-) {
+pub fn draw_triangle(x0: i32, y0: i32, x1: i32, y1: i32, x2: i32, y2: i32, color: &Color) {
     let (w, h) = unsafe { (WIDTH as i32, HEIGHT as i32) };
 
     // Bounding box of the triangle, clamped to the screen.

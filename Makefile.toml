@@ -1,13 +1,28 @@
 [env]
 RUSTFLAGS = "-C target-cpu=cortex-a76 -C link-arg=--library-path=src/__board__/raspberrypi -C link-arg=--script=kernel.ld"
+RUSTFLAGS_PI4 = "-C target-cpu=cortex-a72 -C link-arg=--library-path=src/__board__/raspberrypi -C link-arg=--script=kernel.ld"
 
 [tasks.mint]
-script = "RUSTFLAGS=${RUSTFLAGS} cargo rustc --release"
+script = "RUSTFLAGS=${RUSTFLAGS} cargo objcopy --release  -- --strip-all -O binary target/kernel_2712.img"
 
-[tasks.strip]
-script = "cargo objcopy --release  -- --strip-all -O binary target/kernel_2712.img"
+[tasks.mint-emulate]
+script = "RUSTFLAGS=${RUSTFLAGS_PI4} cargo objcopy --release --no-default-features --features rpi4  -- --strip-all -O binary target/kernel_2712.img"
 
 [tasks.sync]
-dependencies = ["mint", "strip"]
+dependencies = ["mint"]
 command = "cp"
 args = ["target/kernel_2712.img", "/Volumes/bootfs/kernel_2712.img"]
+
+[tasks.emulate]
+dependencies = ["mint-emulate"]
+command = "qemu-system-aarch64"
+args = [
+    "-machine",
+    "raspi4b",
+    "-kernel",
+    "target/kernel_2712.img",
+    "-serial",
+    "stdio",
+    "-display",
+    "cocoa",
+]
