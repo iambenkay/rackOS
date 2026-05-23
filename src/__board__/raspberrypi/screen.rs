@@ -43,53 +43,53 @@ const PITCH_TAG: u32 = 0x0004_0008;
 pub fn init_buffer() -> bool {
     const BUFFER_SIZE: u32 = 35 * 4;
 
-    unsafe {
-        mbox_set(0, BUFFER_SIZE);
-        mbox_set(1, MBOX_REQUEST);
+    mbox_set(0, BUFFER_SIZE);
+    mbox_set(1, MBOX_REQUEST);
 
-        mbox_set(2, PHYSICAL_SIZE_TAG);
-        mbox_set(3, 8);
-        mbox_set(4, 8);
-        mbox_set(5, PHYSICAL_WIDTH);
-        mbox_set(6, PHYSICAL_HEIGHT);
+    mbox_set(2, PHYSICAL_SIZE_TAG);
+    mbox_set(3, 8);
+    mbox_set(4, 8);
+    mbox_set(5, PHYSICAL_WIDTH);
+    mbox_set(6, PHYSICAL_HEIGHT);
 
-        mbox_set(7, VIRTUAL_SIZE_TAG);
-        mbox_set(8, 8);
-        mbox_set(9, 8);
-        mbox_set(10, PHYSICAL_WIDTH);
-        mbox_set(11, PHYSICAL_HEIGHT);
+    mbox_set(7, VIRTUAL_SIZE_TAG);
+    mbox_set(8, 8);
+    mbox_set(9, 8);
+    mbox_set(10, PHYSICAL_WIDTH);
+    mbox_set(11, PHYSICAL_HEIGHT);
 
-        mbox_set(12, VIRTUAL_OFFSET_TAG);
-        mbox_set(13, 8);
-        mbox_set(14, 8);
-        mbox_set(15, 0);
-        mbox_set(16, 0);
+    mbox_set(12, VIRTUAL_OFFSET_TAG);
+    mbox_set(13, 8);
+    mbox_set(14, 8);
+    mbox_set(15, 0);
+    mbox_set(16, 0);
 
-        mbox_set(17, DEPTH_TAG);
-        mbox_set(18, 4);
-        mbox_set(19, 4);
-        mbox_set(20, 32);
+    mbox_set(17, DEPTH_TAG);
+    mbox_set(18, 4);
+    mbox_set(19, 4);
+    mbox_set(20, 32);
 
-        mbox_set(21, PIXEL_ORDER_TAG);
-        mbox_set(22, 4);
-        mbox_set(23, 4);
-        mbox_set(24, 1); // 1 = RGB
+    mbox_set(21, PIXEL_ORDER_TAG);
+    mbox_set(22, 4);
+    mbox_set(23, 4);
+    mbox_set(24, 1); // 1 = RGB
 
-        mbox_set(25, FRAME_BUFFER_TAG);
-        mbox_set(26, 8);
-        mbox_set(27, 8);
-        mbox_set(28, 4096); // request 4096-byte alignment; returns frame buffer ptr here
-        mbox_set(29, 0); //    returns size here
+    mbox_set(25, FRAME_BUFFER_TAG);
+    mbox_set(26, 8);
+    mbox_set(27, 8);
+    mbox_set(28, 4096); // request 4096-byte alignment; returns frame buffer ptr here
+    mbox_set(29, 0); //    returns size here
 
-        mbox_set(30, PITCH_TAG);
-        mbox_set(31, 4);
-        mbox_set(32, 4);
-        mbox_set(33, 0); // returns pitch here
+    mbox_set(30, PITCH_TAG);
+    mbox_set(31, 4);
+    mbox_set(32, 4);
+    mbox_set(33, 0); // returns pitch here
 
-        mbox_set(34, MBOX_TAG_LAST);
+    mbox_set(34, MBOX_TAG_LAST);
 
-        if mbox_call(MBOX_CH_PROP) && mbox_get(20) == 32 && mbox_get(28) != 0 {
-            // Convert the GPU bus address to an ARM physical address.
+    if mbox_call(MBOX_CH_PROP) && mbox_get(20) == 32 && mbox_get(28) != 0 {
+        // Convert the GPU bus address to an ARM physical address.
+        unsafe {
             FRAME_BUFFER = (mbox_get(28) & 0x3FFF_FFFF) as usize;
             SIZE = mbox_get(29) as usize;
             WIDTH = mbox_get(5);
@@ -99,10 +99,10 @@ pub fn init_buffer() -> bool {
 
             BPP = if WIDTH != 0 { PITCH / WIDTH } else { 4 };
             ISRGB = mbox_get(24);
-            true
-        } else {
-            false
         }
+        true
+    } else {
+        false
     }
 }
 
@@ -219,17 +219,6 @@ fn glyph(c: u8) -> [u8; 8] {
     }
 }
 
-fn put_raw(x: u32, y: u32, color: &Color) {
-    unsafe {
-        if FRAME_BUFFER == 0 || x >= WIDTH || y >= HEIGHT {
-            return;
-        }
-        let addr = FRAME_BUFFER + (y * PITCH + x * BPP) as usize;
-
-        write_color(addr, color);
-    }
-}
-
 fn draw_char(c: u8, px: u32, py: u32, scale: u32) {
     let g = glyph(c);
     for row in 0..8u32 {
@@ -242,7 +231,7 @@ fn draw_char(c: u8, px: u32, py: u32, scale: u32) {
             };
             for sy in 0..scale {
                 for sx in 0..scale {
-                    put_raw(px + col * scale + sx, py + row * scale + sy, &pixel_color);
+                    draw_pixel(px + col * scale + sx, py + row * scale + sy, &pixel_color);
                 }
             }
         }

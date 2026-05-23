@@ -40,6 +40,7 @@ impl Mailbox {
 
 static mut MBOX: Mailbox = Mailbox::new();
 
+/// set value at mailbox index
 pub fn mbox_set(i: usize, v: u32) {
     unsafe {
         let base = addr_of_mut!(MBOX.0) as *mut u32;
@@ -47,6 +48,7 @@ pub fn mbox_set(i: usize, v: u32) {
     }
 }
 
+/// get value at mailbox index
 pub fn mbox_get(i: usize) -> u32 {
     unsafe {
         let base = addr_of!(MBOX.0) as *const u32;
@@ -54,7 +56,7 @@ pub fn mbox_get(i: usize) -> u32 {
     }
 }
 
-/// Send mailbox request and wait for response
+/// Send mailbox request on channel `channel` and wait for response
 pub fn mbox_call(channel: u32) -> bool {
     let addr = addr_of!(MBOX) as usize as u32;
     let channel = (addr & !0xF) | (channel & 0xF);
