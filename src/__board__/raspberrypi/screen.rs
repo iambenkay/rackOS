@@ -32,6 +32,20 @@ static mut DEPTH: u32 = 0;
 static mut BPP: u32 = 4;
 static mut ISRGB: u32 = 0;
 
+pub struct ScreenDimensions {
+    pub height: u32,
+    pub width: u32,
+}
+
+pub fn get_screen_dimensions() -> ScreenDimensions {
+    unsafe {
+        ScreenDimensions {
+            width: WIDTH,
+            height: HEIGHT,
+        }
+    }
+}
+
 const PHYSICAL_SIZE_TAG: u32 = 0x0004_8003;
 const VIRTUAL_SIZE_TAG: u32 = 0x0004_8004;
 const VIRTUAL_OFFSET_TAG: u32 = 0x0004_8009;
@@ -219,7 +233,8 @@ fn glyph(c: u8) -> [u8; 8] {
     }
 }
 
-fn draw_char(c: u8, px: u32, py: u32, scale: u32) {
+/// Draw a text glyph to the screen based on a bitmap
+pub fn draw_char(c: u8, px: u32, py: u32, scale: u32) {
     let g = glyph(c);
     for row in 0..8u32 {
         let bits = g[row as usize];
