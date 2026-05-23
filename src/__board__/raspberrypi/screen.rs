@@ -42,11 +42,15 @@ const MBOX_CH_PROP: u32 = 8;
 const MBOX_TAG_LAST: u32 = 0;
 
 static mut FRAME_BUFFER: usize = 0;
+static mut RAW_FB: u32 = 0;
 static mut SIZE: usize = 0;
 static mut WIDTH: u32 = 0;
 static mut HEIGHT: u32 = 0;
 static mut PITCH: u32 = 0;
+static mut DEPTH: u32 = 0;
+static mut BPP: u32 = 4; // bytes per pixel, derived from pitch/width
 static mut ISRGB: u32 = 0;
+static mut LOG_Y: u32 = 8;
 
 pub struct Color {
     r: u8,
@@ -76,18 +80,35 @@ impl Color {
         Color::from_rgb(0, 0, 255)
     }
 
-    pub fn zero() -> Color {
+    pub fn black() -> Color {
         Color::from_rgb(0, 0, 0)
+    }
+
+    pub fn white() -> Color {
+        Color::from_rgb(255, 255, 255)
+    }
+
+    fn to_rgb565(&self) -> u16 {
+        let r = (self.r as u16 >> 3) & 0x1F;
+        let g = (self.g as u16 >> 2) & 0x3F;
+        let b = (self.b as u16 >> 3) & 0x1F;
+        (r << 11) | (g << 5) | b
+    }
+
+    fn to_rgb(&self) -> u32 {
+        u32::from_le_bytes([self.r, self.g, self.b, self.a])
     }
 }
 
 impl Into<u32> for &Color {
     fn into(self) -> u32 {
-        if cfg!(feature = "rpi4") {
-            u32::from_le_bytes([self.r, self.g, self.b, self.a])
-        } else {
-            u32::from_le_bytes([self.a, self.b, self.g, self.r])
-        }
+        self.to_rgb()
+    }
+}
+
+impl Into<u16> for &Color {
+    fn into(self) -> u16 {
+        self.to_rgb565()
     }
 }
 
@@ -179,6 +200,7 @@ pub fn init() -> bool {
         mbox_set(34, MBOX_TAG_LAST);
 
         if mbox_call(MBOX_CH_PROP) && mbox_get(20) == 32 && mbox_get(28) != 0 {
+            RAW_FB = mbox_get(28);
             // Convert the GPU bus address to an ARM physical address.
             let fb = mbox_get(28) & 0x3FFF_FFFF;
             FRAME_BUFFER = fb as usize;
@@ -186,6 +208,10 @@ pub fn init() -> bool {
             WIDTH = mbox_get(5);
             HEIGHT = mbox_get(6);
             PITCH = mbox_get(33);
+            DEPTH = mbox_get(20);
+            // The firmware may allocate fewer bytes/pixel than `depth` claims
+            // (Pi 5 hands back a 16bpp buffer here), so trust pitch/width.
+            BPP = if WIDTH != 0 { PITCH / WIDTH } else { 4 };
             ISRGB = mbox_get(24);
             true
         } else {
@@ -199,22 +225,22 @@ pub fn clear(color: &Color) {
     if base == 0 || size == 0 {
         return;
     }
-    let words = size / 4;
-    for i in 0..words {
+
+    for i in 0..size / 4 {
         unsafe {
             write_volatile((base + i * 4) as *mut u32, color.into());
         }
     }
 }
 
-/// Write a 32-bit ARGB color to a single pixel.
+/// Write a color to a single pixel, honoring the framebuffer's bytes-per-pixel.
 pub fn draw_pixel(x: u32, y: u32, color: &Color) {
     unsafe {
         if FRAME_BUFFER == 0 || x >= WIDTH || y >= HEIGHT {
             return;
         }
-        let offset = (y * PITCH + x * 4) as usize;
-        write_volatile((FRAME_BUFFER + offset) as *mut u32, color.into());
+        let addr = FRAME_BUFFER + (y * PITCH + x * BPP) as usize;
+        write_color(addr, color);
     }
 }
 
@@ -262,6 +288,181 @@ pub fn draw_triangle(x0: i32, y0: i32, x1: i32, y1: i32, x2: i32, y2: i32, color
             if inside {
                 draw_pixel(x as u32, y as u32, color);
             }
+        }
+    }
+}
+
+// Renders white-on-black 8x8 glyphs straight to the framebuffer with raw u32
+// writes (0xFFFFFFFF / 0x0). Used to dump the firmware-returned framebuffer
+// geometry to the top-right of the screen since there is no working UART.
+
+// 8x8 bitmaps, MSB = leftmost pixel.
+fn glyph(c: u8) -> [u8; 8] {
+    match c {
+        b'0' => [0x70, 0x88, 0x98, 0xA8, 0xC8, 0x88, 0x70, 0x00],
+        b'1' => [0x20, 0x60, 0x20, 0x20, 0x20, 0x20, 0x70, 0x00],
+        b'2' => [0x70, 0x88, 0x08, 0x10, 0x20, 0x40, 0xF8, 0x00],
+        b'3' => [0x70, 0x88, 0x08, 0x30, 0x08, 0x88, 0x70, 0x00],
+        b'4' => [0x10, 0x30, 0x50, 0x90, 0xF8, 0x10, 0x10, 0x00],
+        b'5' => [0xF8, 0x80, 0xF0, 0x08, 0x08, 0x88, 0x70, 0x00],
+        b'6' => [0x30, 0x40, 0x80, 0xF0, 0x88, 0x88, 0x70, 0x00],
+        b'7' => [0xF8, 0x08, 0x10, 0x20, 0x40, 0x40, 0x40, 0x00],
+        b'8' => [0x70, 0x88, 0x88, 0x70, 0x88, 0x88, 0x70, 0x00],
+        b'9' => [0x70, 0x88, 0x88, 0x78, 0x08, 0x10, 0x60, 0x00],
+        b'A' => [0x70, 0x88, 0x88, 0xF8, 0x88, 0x88, 0x88, 0x00],
+        b'B' => [0xF0, 0x88, 0x88, 0xF0, 0x88, 0x88, 0xF0, 0x00],
+        b'C' => [0x70, 0x88, 0x80, 0x80, 0x80, 0x88, 0x70, 0x00],
+        b'D' => [0xF0, 0x88, 0x88, 0x88, 0x88, 0x88, 0xF0, 0x00],
+        b'E' => [0xF8, 0x80, 0x80, 0xF0, 0x80, 0x80, 0xF8, 0x00],
+        b'F' => [0xF8, 0x80, 0x80, 0xF0, 0x80, 0x80, 0x80, 0x00],
+        b'G' => [0x70, 0x88, 0x80, 0xB8, 0x88, 0x88, 0x70, 0x00],
+        b'H' => [0x88, 0x88, 0x88, 0xF8, 0x88, 0x88, 0x88, 0x00],
+        b'I' => [0x70, 0x20, 0x20, 0x20, 0x20, 0x20, 0x70, 0x00],
+        b'J' => [0x38, 0x10, 0x10, 0x10, 0x90, 0x90, 0x60, 0x00],
+        b'K' => [0x88, 0x90, 0xA0, 0xC0, 0xA0, 0x90, 0x88, 0x00],
+        b'L' => [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0xF8, 0x00],
+        b'M' => [0x88, 0xD8, 0xA8, 0xA8, 0x88, 0x88, 0x88, 0x00],
+        b'N' => [0x88, 0xC8, 0xA8, 0x98, 0x88, 0x88, 0x88, 0x00],
+        b'O' => [0x70, 0x88, 0x88, 0x88, 0x88, 0x88, 0x70, 0x00],
+        b'P' => [0xF0, 0x88, 0x88, 0xF0, 0x80, 0x80, 0x80, 0x00],
+        b'Q' => [0x70, 0x88, 0x88, 0x88, 0xA8, 0x90, 0x68, 0x00],
+        b'R' => [0xF0, 0x88, 0x88, 0xF0, 0xA0, 0x90, 0x88, 0x00],
+        b'S' => [0x70, 0x88, 0x80, 0x70, 0x08, 0x88, 0x70, 0x00],
+        b'T' => [0xF8, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x00],
+        b'U' => [0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x70, 0x00],
+        b'V' => [0x88, 0x88, 0x88, 0x88, 0x88, 0x50, 0x20, 0x00],
+        b'W' => [0x88, 0x88, 0x88, 0xA8, 0xA8, 0xD8, 0x88, 0x00],
+        b'X' => [0x88, 0x88, 0x50, 0x20, 0x50, 0x88, 0x88, 0x00],
+        b'Y' => [0x88, 0x88, 0x50, 0x20, 0x20, 0x20, 0x20, 0x00],
+        b'Z' => [0xF8, 0x08, 0x10, 0x20, 0x40, 0x80, 0xF8, 0x00],
+        b':' => [0x00, 0x20, 0x20, 0x00, 0x00, 0x20, 0x20, 0x00],
+        _ => [0x00; 8],
+    }
+}
+
+fn put_raw(x: u32, y: u32, color: &Color) {
+    unsafe {
+        if FRAME_BUFFER == 0 || x >= WIDTH || y >= HEIGHT {
+            return;
+        }
+        let addr = FRAME_BUFFER + (y * PITCH + x * BPP) as usize;
+
+        write_color(addr, color);
+    }
+}
+
+fn draw_char(c: u8, px: u32, py: u32, scale: u32) {
+    let g = glyph(c);
+    for row in 0..8u32 {
+        let bits = g[row as usize];
+        for col in 0..8u32 {
+            let pixel_color = if (bits >> (7 - col)) & 1 == 1 {
+                Color::white()
+            } else {
+                Color::black()
+            };
+            for sy in 0..scale {
+                for sx in 0..scale {
+                    put_raw(px + col * scale + sx, py + row * scale + sy, &pixel_color);
+                }
+            }
+        }
+    }
+}
+
+fn draw_str(s: &[u8], px: u32, py: u32, scale: u32) {
+    let mut cx = px;
+    for &c in s {
+        draw_char(c, cx, py, scale);
+        cx += 8 * scale;
+    }
+}
+
+pub fn log_u32(key: &[u8], value: u32) {
+    let scale = 2u32;
+    let mut buf = [b' '; 50];
+    let mut n = 0;
+    for &c in key {
+        buf[n] = c;
+        n += 1;
+    }
+    buf[n] = b':';
+    n += 1;
+    for shift in (0..8).rev() {
+        let nib = ((value >> (shift * 4)) & 0xF) as u8;
+        buf[n] = if nib < 10 {
+            b'0' + nib
+        } else {
+            b'A' + nib - 10
+        };
+        n += 1;
+    }
+    n += 1;
+    buf[n] = b'O';
+    n += 1;
+    buf[n] = b'R';
+    n += 2;
+
+    let (digits, len) = number_to_char_array::<12>(value);
+    for i in 0..len {
+        buf[n] = digits[i];
+        n += 1;
+    }
+
+    let width_px = 27 * 8 * scale; // reserve 25 chars
+    let x = unsafe { WIDTH }.saturating_sub(width_px + 8);
+    let y = unsafe { LOG_Y };
+    draw_str(&buf[..n], x, y, scale);
+    unsafe { LOG_Y += 8 * scale + 4 };
+}
+
+/// Dump the firmware-returned framebuffer geometry to the top-right corner.
+pub fn debug_dump() {
+    unsafe {
+        log_u32(b"W", WIDTH);
+        log_u32(b"H", HEIGHT);
+        log_u32(b"P", PITCH);
+        log_u32(b"S", SIZE as u32);
+        log_u32(b"DEPTH", DEPTH);
+        log_u32(b"FB", FRAME_BUFFER as u32);
+        log_u32(b"RAW", RAW_FB);
+    }
+}
+
+fn number_to_char_array<const N: usize>(mut num: u32) -> ([u8; N], usize) {
+    let mut buffer = [b'\0'; N];
+    let mut index = N;
+
+    // Handle zero explicitly
+    if num == 0 {
+        index -= 1;
+        buffer[index] = b'0';
+        return (buffer, N - index);
+    }
+
+    // Extract digits
+    while num != 0 {
+        // Use .abs() to handle negative numbers safely
+        let remainder = num % 10;
+        index -= 1;
+        buffer[index] = b'0' + remainder as u8;
+        num /= 10;
+    }
+
+    // Shift valid characters to the beginning of the array
+    let mut result = [b'\0'; N];
+    let len = N - index;
+    result[..len].copy_from_slice(&buffer[index..N]);
+
+    (result, len)
+}
+
+fn write_color(addr: usize, color: &Color) {
+    unsafe {
+        if BPP == 2 {
+            write_volatile(addr as *mut u16, color.into());
+        } else {
+            write_volatile(addr as *mut u32, color.into());
         }
     }
 }
