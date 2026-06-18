@@ -23,14 +23,42 @@ const MBOX_REQUEST: u32 = 0;
 const MBOX_CH_PROP: u32 = 8;
 const MBOX_TAG_LAST: u32 = 0;
 
-static mut FRAME_BUFFER: usize = 0;
-static mut SIZE: usize = 0;
-static mut WIDTH: u32 = 0;
-static mut HEIGHT: u32 = 0;
-static mut PITCH: u32 = 0;
-static mut DEPTH: u32 = 0;
-static mut BPP: u32 = 4;
-static mut ISRGB: u32 = 0;
+struct FrameConfig {
+    buffer: usize,
+    size: usize,
+    width: u32,
+    height: u32,
+    pitch: u32,
+    depth: u32,
+    bits_per_pixel: u32,
+    is_rgb: u32,
+}
+
+impl FrameConfig {
+    const fn new() -> Self {
+        FrameConfig {
+            buffer: 0,
+            size: 0,
+            width: 0,
+            height: 0,
+            pitch: 0,
+            depth: 0,
+            bits_per_pixel: 4,
+            is_rgb: 0,
+        }
+    }
+}
+
+static mut FRAME_CONFIG: FrameConfig = FrameConfig::new();
+
+// static mut FRAME_BUFFER: usize = 0;
+// static mut SIZE: usize = 0;
+// static mut WIDTH: u32 = 0;
+// static mut HEIGHT: u32 = 0;
+// static mut PITCH: u32 = 0;
+// static mut DEPTH: u32 = 0;
+// static mut BPP: u32 = 4;
+// static mut ISRGB: u32 = 0;
 
 pub struct ScreenDimensions {
     pub height: u32,
@@ -40,8 +68,8 @@ pub struct ScreenDimensions {
 pub fn get_screen_dimensions() -> ScreenDimensions {
     unsafe {
         ScreenDimensions {
-            width: WIDTH,
-            height: HEIGHT,
+            width: FRAME_CONFIG.width,
+            height: FRAME_CONFIG.height,
         }
     }
 }
@@ -102,17 +130,20 @@ pub fn init_buffer() -> bool {
     mbox_set(34, MBOX_TAG_LAST);
 
     if mbox_call(MBOX_CH_PROP) && mbox_get(20) == 32 && mbox_get(28) != 0 {
-        // Convert the GPU bus address to an ARM physical address.
         unsafe {
-            FRAME_BUFFER = (mbox_get(28) & 0x3FFF_FFFF) as usize;
-            SIZE = mbox_get(29) as usize;
-            WIDTH = mbox_get(5);
-            HEIGHT = mbox_get(6);
-            PITCH = mbox_get(33);
-            DEPTH = mbox_get(20);
-
-            BPP = if WIDTH != 0 { PITCH / WIDTH } else { 4 };
-            ISRGB = mbox_get(24);
+            // Convert the GPU bus address to an ARM physical address and store the buffer
+            FRAME_CONFIG.buffer = (mbox_get(28) & 0x3FFF_FFFF) as usize;
+            FRAME_CONFIG.size = mbox_get(29) as usize;
+            FRAME_CONFIG.width = mbox_get(5);
+            FRAME_CONFIG.height = mbox_get(6);
+            FRAME_CONFIG.pitch = mbox_get(33);
+            FRAME_CONFIG.depth = mbox_get(20);
+            FRAME_CONFIG.bits_per_pixel = if FRAME_CONFIG.width != 0 {
+                FRAME_CONFIG.pitch / FRAME_CONFIG.width
+            } else {
+                4
+            };
+            FRAME_CONFIG.is_rgb = mbox_get(24);
         }
         true
     } else {
@@ -121,7 +152,7 @@ pub fn init_buffer() -> bool {
 }
 
 pub fn clear(color: &Color) {
-    let (base, size) = unsafe { (FRAME_BUFFER, SIZE) };
+    let (base, size) = unsafe { (FRAME_CONFIG.buffer, FRAME_CONFIG.size) };
     if base == 0 || size == 0 {
         return;
     }
@@ -134,10 +165,11 @@ pub fn clear(color: &Color) {
 /// Write a color to a single pixel, honoring the framebuffer's bytes-per-pixel.
 pub fn draw_pixel(x: u32, y: u32, color: &Color) {
     unsafe {
-        if FRAME_BUFFER == 0 || x >= WIDTH || y >= HEIGHT {
+        if FRAME_CONFIG.buffer == 0 || x >= FRAME_CONFIG.width || y >= FRAME_CONFIG.height {
             return;
         }
-        let addr = FRAME_BUFFER + (y * PITCH + x * BPP) as usize;
+        let addr = FRAME_CONFIG.buffer
+            + (y * FRAME_CONFIG.pitch + x * FRAME_CONFIG.bits_per_pixel) as usize;
         write_color(addr, color);
     }
 }
@@ -158,7 +190,7 @@ fn edge(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> i32 {
 
 /// Fill a triangle given by three vertices, using half-space rasterization.
 pub fn draw_triangle(x0: i32, y0: i32, x1: i32, y1: i32, x2: i32, y2: i32, color: &Color) {
-    let (w, h) = unsafe { (WIDTH as i32, HEIGHT as i32) };
+    let (w, h) = unsafe { (FRAME_CONFIG.width as i32, FRAME_CONFIG.height as i32) };
 
     // Bounding box of the triangle, clamped to the screen.
     let min_x = x0.min(x1).min(x2).max(0);
@@ -255,7 +287,7 @@ pub fn draw_char(c: u8, px: u32, py: u32, scale: u32) {
 
 fn write_color(addr: usize, color: &Color) {
     unsafe {
-        if BPP == 2 {
+        if FRAME_CONFIG.bits_per_pixel == 2 {
             core::ptr::write_volatile(addr as *mut u16, color.into());
         } else {
             core::ptr::write_volatile(addr as *mut u32, color.into());
@@ -270,12 +302,12 @@ pub mod debug {
     pub fn debug_dump() {
         let (w, h, p, s, bpp, d) = unsafe {
             (
-                super::WIDTH,
-                super::HEIGHT,
-                super::PITCH,
-                super::SIZE,
-                super::BPP,
-                super::DEPTH,
+                super::FRAME_CONFIG.width,
+                super::FRAME_CONFIG.height,
+                super::FRAME_CONFIG.pitch,
+                super::FRAME_CONFIG.size,
+                super::FRAME_CONFIG.bits_per_pixel,
+                super::FRAME_CONFIG.depth,
             )
         };
         println!("Width: {}", w);
