@@ -1,5 +1,5 @@
-#[path = "__board__/raspberrypi/raspberrypi.rs"]
-mod raspberrypi;
+#[path = "__board__/raspberrypi/cpu.rs"]
+mod cpu;
 
 #[path = "__board__/raspberrypi/screen.rs"]
 pub mod screen;

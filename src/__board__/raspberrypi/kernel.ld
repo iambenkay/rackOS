@@ -1,8 +1,3 @@
-/* SPDX-License-Identifier: MIT OR Apache-2.0
- *
- * Copyright (c) 2018-2022 Andre Richter <andre.o.richter@gmail.com>
- */
-
 __rpi_phys_dram_start_addr = 0;
 
 /* The physical address at which the the kernel binary will be loaded by the Raspberry's firmware */

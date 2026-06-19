@@ -7,5 +7,5 @@ global_asm!(
 
 #[unsafe(no_mangle)]
 pub fn _start_rust() -> ! {
-    crate::kernel::entrypoint()
+    crate::kernel::main()
 }

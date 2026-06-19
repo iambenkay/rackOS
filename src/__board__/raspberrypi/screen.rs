@@ -51,15 +51,6 @@ impl FrameConfig {
 
 static mut FRAME_CONFIG: FrameConfig = FrameConfig::new();
 
-// static mut FRAME_BUFFER: usize = 0;
-// static mut SIZE: usize = 0;
-// static mut WIDTH: u32 = 0;
-// static mut HEIGHT: u32 = 0;
-// static mut PITCH: u32 = 0;
-// static mut DEPTH: u32 = 0;
-// static mut BPP: u32 = 4;
-// static mut ISRGB: u32 = 0;
-
 pub struct ScreenDimensions {
     pub height: u32,
     pub width: u32,

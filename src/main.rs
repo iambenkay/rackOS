@@ -1,6 +1,6 @@
-#![allow(internal_features)]
 #![no_std]
 #![no_main]
+#![allow(internal_features)]
 #![feature(lang_items)]
 
 mod board_core;

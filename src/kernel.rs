@@ -1,6 +1,6 @@
 use crate::board_core::screen::{self, Color};
 
-pub fn entrypoint() -> ! {
+pub fn main() -> ! {
     if screen::init_buffer() {
         let black = Color::black();
         screen::clear(&black);
