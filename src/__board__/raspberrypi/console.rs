@@ -1,14 +1,10 @@
-use crate::board_core::screen::{draw_char, get_screen_dimensions};
+use crate::display::{draw_char, get_screen_dimensions};
 
-struct RaspiWriter;
+pub struct RaspiWriter;
 
 const CON_SCALE: u32 = 1;
 static mut CON_X: u32 = 0;
 static mut CON_Y: u32 = 0;
-
-pub fn console() -> impl core::fmt::Write {
-    RaspiWriter
-}
 
 impl core::fmt::Write for RaspiWriter {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {

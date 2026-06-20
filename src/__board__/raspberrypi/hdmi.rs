@@ -2,8 +2,49 @@ mod mailbox;
 
 use core::u8;
 
-pub use crate::color::Color;
+use crate::{
+    color::Color,
+    display::DisplayBuffer,
+    geometry, println,
+    types::{KernelError, KernelResult},
+};
 use mailbox::{mbox_call, mbox_get, mbox_set};
+
+pub struct HdmiBuffer;
+
+impl HdmiBuffer {
+    pub fn new() -> KernelResult<Self> {
+        if init_buffer() {
+            Ok(Self)
+        } else {
+            Err(KernelError::BufferInitError)
+        }
+    }
+}
+
+impl DisplayBuffer for HdmiBuffer {
+    fn clear(&self, color: &Color) {
+        clear(color);
+    }
+
+    fn draw_rect(&self, p1: geometry::Point, p2: geometry::Point, color: &Color) {
+        draw_rect(p1.x(), p1.y(), p2.x(), p2.y(), color);
+    }
+
+    fn draw_triangle(
+        &self,
+        p0: geometry::Point,
+        p1: geometry::Point,
+        p2: geometry::Point,
+        color: &Color,
+    ) {
+        draw_triangle(p0.x(), p0.y(), p1.x(), p1.y(), p2.x(), p2.y(), color);
+    }
+
+    fn debug(&self) {
+        debug_dump();
+    }
+}
 
 #[cfg(feature = "device")]
 const PHYSICAL_WIDTH: u32 = 3440;
@@ -69,7 +110,7 @@ const PIXEL_ORDER_TAG: u32 = 0x0004_8006;
 const FRAME_BUFFER_TAG: u32 = 0x0004_0001;
 const PITCH_TAG: u32 = 0x0004_0008;
 
-pub fn init_buffer() -> bool {
+fn init_buffer() -> bool {
     const BUFFER_SIZE: u32 = 35 * 4;
 
     mbox_set(0, BUFFER_SIZE);
@@ -138,7 +179,7 @@ pub fn init_buffer() -> bool {
     }
 }
 
-pub fn clear(color: &Color) {
+fn clear(color: &Color) {
     let (base, size) = unsafe { (FRAME_CONFIG.buffer, FRAME_CONFIG.size) };
     if base == 0 || size == 0 {
         return;
@@ -150,21 +191,38 @@ pub fn clear(color: &Color) {
 }
 
 /// Write a color to a single pixel, honoring the framebuffer's bits-per-pixel.
-pub fn draw_pixel(x: u32, y: u32, color: &Color) {
+/// Coordinates outside the screen (including negative) are silently dropped.
+fn draw_pixel(x: i32, y: i32, color: &Color) {
     unsafe {
-        if FRAME_CONFIG.buffer == 0 || x >= FRAME_CONFIG.width || y >= FRAME_CONFIG.height {
+        if FRAME_CONFIG.buffer == 0
+            || x < 0
+            || y < 0
+            || (x as u32) >= FRAME_CONFIG.width
+            || (y as u32) >= FRAME_CONFIG.height
+        {
             return;
         }
+        let x = x as u32;
+        let y = y as u32;
         let addr = FRAME_CONFIG.buffer
             + (y * FRAME_CONFIG.pitch + x * FRAME_CONFIG.bits_per_pixel) as usize;
         write_color(addr, color);
     }
 }
 
-/// Fill a solid rectangle with the given color.
-pub fn draw_rect(x1: u32, y1: u32, x2: u32, y2: u32, color: &Color) {
-    for y in y1..=y2 {
-        for x in x1..=x2 {
+/// Fill a solid rectangle with the given color. The rect is clipped to the
+/// screen, so off-screen (including negative) corners are fine.
+fn draw_rect(x1: i32, y1: i32, x2: i32, y2: i32, color: &Color) {
+    let (w, h) = unsafe { (FRAME_CONFIG.width as i32, FRAME_CONFIG.height as i32) };
+    let xa = x1.min(x2).max(0);
+    let xb = x1.max(x2).min(w - 1);
+    let ya = y1.min(y2).max(0);
+    let yb = y1.max(y2).min(h - 1);
+    if xa > xb || ya > yb {
+        return; // fully off-screen
+    }
+    for y in ya..=yb {
+        for x in xa..=xb {
             draw_pixel(x, y, color);
         }
     }
@@ -176,7 +234,7 @@ fn edge(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> i32 {
 }
 
 /// Fill a triangle given by three vertices, using half-space rasterization.
-pub fn draw_triangle(x0: i32, y0: i32, x1: i32, y1: i32, x2: i32, y2: i32, color: &Color) {
+fn draw_triangle(x0: i32, y0: i32, x1: i32, y1: i32, x2: i32, y2: i32, color: &Color) {
     let (w, h) = unsafe { (FRAME_CONFIG.width as i32, FRAME_CONFIG.height as i32) };
 
     // Bounding box of the triangle, clamped to the screen.
@@ -203,7 +261,7 @@ pub fn draw_triangle(x0: i32, y0: i32, x1: i32, y1: i32, x2: i32, y2: i32, color
                 w0 <= 0 && w1 <= 0 && w2 <= 0
             };
             if inside {
-                draw_pixel(x as u32, y as u32, color);
+                draw_pixel(x, y, color);
             }
         }
     }
@@ -265,7 +323,11 @@ pub fn draw_char(c: u8, px: u32, py: u32, scale: u32) {
             };
             for sy in 0..scale {
                 for sx in 0..scale {
-                    draw_pixel(px + col * scale + sx, py + row * scale + sy, &pixel_color);
+                    draw_pixel(
+                        (px + col * scale + sx) as i32,
+                        (py + row * scale + sy) as i32,
+                        &pixel_color,
+                    );
                 }
             }
         }
@@ -282,26 +344,21 @@ fn write_color(addr: usize, color: &Color) {
     }
 }
 
-pub mod debug {
-    use crate::println;
-
-    /// Dump the firmware-returned framebuffer geometry to the top-right corner.
-    pub fn debug_dump() {
-        let (w, h, p, s, bpp, d) = unsafe {
-            (
-                super::FRAME_CONFIG.width,
-                super::FRAME_CONFIG.height,
-                super::FRAME_CONFIG.pitch,
-                super::FRAME_CONFIG.size,
-                super::FRAME_CONFIG.bits_per_pixel,
-                super::FRAME_CONFIG.depth,
-            )
-        };
-        println!("Width: {}", w);
-        println!("Height: {}", h);
-        println!("Pitch: {}", p);
-        println!("Size: {}", s);
-        println!("Bits per pixel: {}", bpp);
-        println!("Depth: {}", d);
-    }
+fn debug_dump() {
+    let (w, h, p, s, bpp, d) = unsafe {
+        (
+            FRAME_CONFIG.width,
+            FRAME_CONFIG.height,
+            FRAME_CONFIG.pitch,
+            FRAME_CONFIG.size,
+            FRAME_CONFIG.bits_per_pixel,
+            FRAME_CONFIG.depth,
+        )
+    };
+    println!("Width: {}", w);
+    println!("Height: {}", h);
+    println!("Pitch: {}", p);
+    println!("Size: {}", s);
+    println!("Bits per pixel: {}", bpp);
+    println!("Depth: {}", d);
 }

@@ -6,32 +6,32 @@ pub struct Color {
 }
 
 impl Color {
-    pub fn from_rgb(r: u8, g: u8, b: u8) -> Color {
-        Color::from_rgba(r, g, b, u8::MAX)
+    pub fn from_rgb(r: u8, g: u8, b: u8) -> Self {
+        Self::from_rgba(r, g, b, u8::MAX)
     }
 
-    pub fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
-        Color { r, g, b, a }
+    pub fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
     }
 
-    pub fn red() -> Color {
-        Color::from_rgb(0xFF, 0, 0)
+    pub fn red() -> Self {
+        Self::from_rgb(0xFF, 0, 0)
     }
 
-    pub fn green() -> Color {
-        Color::from_rgb(0, 0xFF, 0)
+    pub fn green() -> Self {
+        Self::from_rgb(0, 0xFF, 0)
     }
 
-    pub fn blue() -> Color {
-        Color::from_rgb(0, 0, 0xFF)
+    pub fn blue() -> Self {
+        Self::from_rgb(0, 0, 0xFF)
     }
 
     pub fn black() -> Color {
-        Color::from_rgb(0, 0, 0)
+        Self::from_rgb(0, 0, 0)
     }
 
-    pub fn white() -> Color {
-        Color::from_rgb(0xFF, 0xFF, 0xFF)
+    pub fn white() -> Self {
+        Self::from_rgb(0xFF, 0xFF, 0xFF)
     }
 
     fn to_rgb565(&self) -> u16 {
@@ -42,10 +42,10 @@ impl Color {
     }
 
     fn to_rgb(&self) -> u32 {
-        #[cfg(feature = "color-rgb")]
+        #[cfg(feature = "ltr-rgb")]
         return u32::from_le_bytes([self.r, self.g, self.b, self.a]);
 
-        #[cfg(not(feature = "color-rgb"))]
+        #[cfg(not(feature = "ltr-rgb"))]
         return u32::from_le_bytes([self.b, self.g, self.r, self.a]);
     }
 }

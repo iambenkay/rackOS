@@ -1,8 +1,27 @@
+#[path = "__board__/raspberrypi/hdmi.rs"]
+mod raspberrypi_hdmi;
+
 use crate::color;
+use crate::geometry;
+use crate::types::KernelResult;
+
+use raspberrypi_hdmi::HdmiBuffer;
+pub use raspberrypi_hdmi::{draw_char, get_screen_dimensions};
+
+pub fn display_buffer() -> KernelResult<impl DisplayBuffer> {
+    #[cfg(any(feature = "rpi5", feature = "rpi4"))]
+    HdmiBuffer::new()
+}
 
 pub trait DisplayBuffer {
     fn clear(&self, color: &color::Color);
-    fn draw_pixel(&self, x: u32, y: u32, color: &color::Color);
-    fn draw_rect(&self, x1: u32, y1: u32, x2: u32, y2: u32, color: &color::Color);
-    fn draw_triangle(x0: i32, y0: i32, x1: i32, y1: i32, x2: i32, y2: i32, color: &color::Color);
+    fn draw_rect(&self, p1: geometry::Point, p2: geometry::Point, color: &color::Color);
+    fn draw_triangle(
+        &self,
+        p0: geometry::Point,
+        p1: geometry::Point,
+        p2: geometry::Point,
+        color: &color::Color,
+    );
+    fn debug(&self);
 }
