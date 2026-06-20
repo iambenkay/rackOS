@@ -1,6 +1,6 @@
 use crate::color::Color;
-use crate::display::{self, DisplayBuffer};
 use crate::geometry::Point;
+use crate::motherboards::display::{self, DisplayBuffer};
 
 pub fn main() -> ! {
     if let Ok(screen_buffer) = display::display_buffer() {

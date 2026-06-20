@@ -1,14 +1,13 @@
-mod mailbox;
-
 use core::u8;
+
+use super::mailbox::{mbox_call, mbox_get, mbox_set};
+use crate::motherboards::display::DisplayBuffer;
 
 use crate::{
     color::Color,
-    display::DisplayBuffer,
     geometry, println,
     types::{KernelError, KernelResult},
 };
-use mailbox::{mbox_call, mbox_get, mbox_set};
 
 pub struct HdmiBuffer;
 

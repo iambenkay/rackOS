@@ -1,12 +1,8 @@
-#[path = "__board__/raspberrypi/hdmi.rs"]
-mod raspberrypi_hdmi;
-
 use crate::color;
 use crate::geometry;
 use crate::types::KernelResult;
 
-use raspberrypi_hdmi::HdmiBuffer;
-pub use raspberrypi_hdmi::{draw_char, get_screen_dimensions};
+use super::raspberrypi::hdmi::HdmiBuffer;
 
 pub fn display_buffer() -> KernelResult<impl DisplayBuffer> {
     #[cfg(any(feature = "rpi5", feature = "rpi4"))]

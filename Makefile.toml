@@ -1,6 +1,6 @@
 [env]
-RUSTFLAGS = "-C target-cpu=cortex-a76 -C link-arg=--library-path=src/__board__/raspberrypi -C link-arg=--script=kernel.ld"
-RUSTFLAGS_PI4 = "-C target-cpu=cortex-a72 -C link-arg=--library-path=src/__board__/raspberrypi -C link-arg=--script=kernel.ld"
+RUSTFLAGS = "-C target-cpu=cortex-a76 -C link-arg=--library-path=src/motherboards/raspberrypi -C link-arg=--script=kernel.ld"
+RUSTFLAGS_PI4 = "-C target-cpu=cortex-a72 -C link-arg=--library-path=src/motherboards/raspberrypi -C link-arg=--script=kernel.ld"
 
 [tasks.compile]
 script = "RUSTFLAGS=${RUSTFLAGS} cargo objcopy --release  -- --strip-all -O binary target/kernel_2712.img"

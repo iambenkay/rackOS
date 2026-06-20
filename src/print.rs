@@ -1,5 +1,6 @@
-use crate::board_core;
 use core::fmt;
+
+use crate::motherboards;
 
 #[macro_export]
 macro_rules! print {
@@ -15,5 +16,5 @@ macro_rules! println {
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
-    board_core::console().write_fmt(args).unwrap();
+    motherboards::console().write_fmt(args).unwrap();
 }

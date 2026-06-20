@@ -1,8 +1,6 @@
-use core::panic::PanicInfo;
-
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    crate::cpu::wait_forever()
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    crate::processors::wait_forever()
 }
 
 #[lang = "eh_personality"]

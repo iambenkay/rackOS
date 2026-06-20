@@ -3,13 +3,11 @@
 #![allow(internal_features)]
 #![feature(lang_items)]
 
-mod board_core;
-mod bootloader;
 mod color;
-mod cpu;
-mod display;
 mod geometry;
 mod kernel;
+mod motherboards;
 mod panic_cfg;
 mod print;
+mod processors;
 mod types;

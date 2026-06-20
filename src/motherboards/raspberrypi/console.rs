@@ -1,4 +1,4 @@
-use crate::display::{draw_char, get_screen_dimensions};
+use super::hdmi::{draw_char, get_screen_dimensions};
 
 pub struct RaspiWriter;
 
